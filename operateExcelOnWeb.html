@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <title>test</title>
+    <link rel="stylesheet" href="https://unpkg.com/sanitize.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.3/xlsx.full.min.js"></script>
+    <!--<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/exif-js"></script>-->
+    <style type="text/css">
+      .noDisplay  {display: none;}
+      #fileArea {
+        text-align: center;
+        height: 7%;
+      }
+      #myfile {
+        height: 7%;
+      }
+      #selectSheetContainer {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      #selectSheetContainer div {
+        text-align: center;
+        margin: 0.5% 0;
+      }
+      #selectSheetContainer select {
+        width: 90%;
+        margin: 0.5% 0;
+      }
+      #selectIndexContainer {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      #selectIndexContainer div {
+        text-align: center;
+        margin: 0.5% 0;
+      }
+      #selectIndexContainer select {
+        width: 90%;
+        margin: 0.5% 0;
+      }
+      #mainTable {
+        margin: 2% auto;
+      }
+      #buttonArea {
+        text-align: center;
+      }
+      #resetButton {
+        width: 30%;
+        height: 7%;
+      }
+      p {
+        text-align: center;
+      }
+    </style>
+  </head>
+
+  <body>
+    <p>ボタンを押してエクセルファイルを選択してください。<br>
+      エクセルファイルの<font color="red">1行目をインデックス</font>と解釈して表示します。<br>
+      絞りたいたい内容に合わせてセレクタから要素を選んでください。<br>
+      新しいファイルを選ぶ場合はページを更新してください。</p>
+    <div id="fileArea"><input type="file" name="myfile"  id="myfile"></div>
+    <div id="selectSheetContainer"></div>
+    <div id="selectIndexContainer"></div>
+    <table id="mainTable" border="1" bordercolor="black"></table>
+    <div id="buttonArea"></div>
+    <script>
+      var X = XLSX;
+      var output;
+      var sheetNameList;
+      var nowSheetName;
+      var indexNameList;
+      var dataTable;
+
+      // ファイル選択時のメイン処理
+      function handleFile(e) {
+
+        var files = e.target.files;
+        var f = files[0];
+
+
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          var data = e.target.result;
+          var wb;
+          var arr = fixdata(data);
+          wb = X.read(btoa(arr), {
+              type: 'base64',
+              cellDates: true,
+          });
+
+          output = to_json(wb);
+
+          //シート名を取得し、シート名のセレクタを作成
+          sheetNameList = Object.keys(output);
+          var pSelectSheetContainer = document.getElementById('selectSheetContainer');
+          var sDiv = document.createElement('div');
+          sDiv.innerHTML = 'シート名';
+          pSelectSheetContainer.appendChild(sDiv);
+          var sSelect = document.createElement('select');
+          sSelect.id = 'sheet';
+          sSelect.setAttribute('onChange', 'changeSheet()');
+          for(let i=0; i<sheetNameList.length; i++) {
+            let Option = document.createElement('option');
+            Option.value = sheetNameList[i];
+            Option.innerHTML = sheetNameList[i];
+            sSelect.appendChild(Option);
+          }
+          pSelectSheetContainer.appendChild(sSelect);
+
+          //初回なので、一枚目のシートのインデックスを取得し、その内容を別な配列に格納
+          nowSheetName = sheetNameList[0];
+          dataSet(nowSheetName);
+
+          //インデックスのセレクタを作成
+          indexSet();
+
+          //tableを作成
+          makeTable();
+
+          var button = document.createElement('input');
+          button.type = 'button';
+          button.value = 'リセット';
+          button.id = 'resetButton';
+          document.getElementById('buttonArea').appendChild(button);
+          document.getElementById('resetButton').setAttribute('onClick', 'allReset()');
+
+        };
+
+        reader.readAsArrayBuffer(f);
+      }
+
+      // ファイルの読み込み
+      function fixdata(data) {
+        var o = "",
+            l = 0,
+            w = 10240;
+        for (; l < data.byteLength / w; ++l) o += String.fromCharCode.apply(null, new Uint8Array(data.slice(l * w, l * w + w)));
+        o += String.fromCharCode.apply(null, new Uint8Array(data.slice(l * w)));
+        return o;
+      }
+
+      // ワークブックのデータをjsonに変換
+      function to_json(workbook) {
+        let result = {};
+        workbook.SheetNames.forEach(function (sheetName) {
+            var roa = X.utils.sheet_to_json(
+                workbook.Sheets[sheetName],
+                {
+                  raw: true,
+                });
+            if (roa.length > 0) {
+                result[sheetName] = roa;
+            }
+        });
+        return result;
+      }
+
+      function filter(index) {
+        var collected = new Array(indexNameList.length);
+        var iSelectValue = [];
+        var flag = 0;
+        for(let i=0;i<indexNameList.length;i++) {
+          collected[i] = new Array();
+        }
+
+        for(let i=0;i<indexNameList.length;i++) {
+          if(document.getElementById(indexNameList[i]).value != 'nashi') {
+            collected[i].push(document.getElementById(indexNameList[i]).value);
+            flag += 1;
+          }
+        }
+
+        if(flag > 0) {
+				//いったん全要素を見えなくする
+          var list = document.getElementsByTagName('tr');
+          for(var i=0;i<list.length;i++) {
+              if(list.item(i).className != 'colTitle') {
+                list.item(i).classList.add('noDisplay')
+              }
+          }
+                    
+          var temp1 = [];
+          var temp2 = [];
+
+          for(var i=0;i<collected.length;i++) {
+            if(temp1.length == 0) {
+              temp1 = collected[i];
+            } else {
+              if(collected[i].length != 0) {
+                for(var j=0;j<temp1.length;j++) {
+                  for(var k=0;k<collected[i].length;k++) {
+                    temp2.push(temp1[j] + ' ' + collected[i][k]);
+                  }
+                }
+                temp1 = temp2;
+                temp2 = [];
+              }
+            }
+          }
+
+
+          var nselect = new Array(indexNameList.length);
+          var slist = document.getElementsByClassName(temp1[0]);
+          for(let i=0;i<indexNameList.length;i++) {
+            nselect[i] = new Array();
+          }
+          for(let i=0;i<slist.length;i++) {
+            let t = slist.item(i).outerHTML.split('<td>');
+            for(let j=1;j<t.length;j++) {
+              nselect[j-1].push(t[j].slice(0, t[j].indexOf('<')));
+            }
+          }
+          for(let i=0;i<nselect.length;i++) {
+            nselect[i] = Array.from(new Set(nselect[i]));
+          }
+
+          for(let i=0;i<indexNameList.length;i++) {
+            if (document.getElementById(indexNameList[i]).value != 'nashi') {
+              continue;
+            }
+            let target = document.getElementById(indexNameList[i]);
+            while (target.lastChild) {
+              if (target.lastChild.value == 'nashi') {
+                break;
+              }
+              target.removeChild(target.lastChild);
+            }
+            nselect[i].forEach(function (element) {
+              let op = document.createElement('option');
+              op.value = element;
+              op.innerHTML = element;
+              target.appendChild(op);
+            });
+          }
+
+					//対象のみ見えるようにする
+          temp1.forEach(function (value) {
+            var content = document.getElementsByClassName(value);
+              for(var l=0;l<content.length;l++) {
+                content.item(l).classList.remove('noDisplay');
+              }
+          });
+        }
+
+        if(flag == 0) {
+          var list = document.getElementsByTagName('tr');
+          for(let i=0;i<list.length;i++) {
+            if(list.item(i).className != 'colTitle') {
+              list.item(i).classList.remove('noDisplay');
+            }
+          }
+          for(let i=0;i<indexNameList.length;i++) {
+            let target = document.getElementById(indexNameList[i]);
+            while (target.lastChild) {
+              if (target.lastChild.value == 'nashi') {
+                break;
+              }
+              target.removeChild(target.lastChild);
+            }
+            dataTable[i].sort().forEach(function (element) {
+              let op = document.createElement('option');
+              op.value = element;
+              op.innerHTML = element;
+              target.appendChild(op);
+            });
+          }
+        }
+      }
+
+      function changeSheet() {
+        let parentList = [document.getElementById('selectIndexContainer'), document.getElementById('mainTable')];
+        parentList.forEach(function (content) {
+          while(content.lastElementChild != null) {
+            content.lastElementChild.remove();
+          }
+        });
+        nowSheetName = document.getElementById('sheet').value;
+        dataSet(nowSheetName);
+        indexSet();
+        makeTable();
+      }
+
+      //シート名に合わせたデータのセット
+      function dataSet(sheetname) {
+        indexNameList = Object.keys(output[sheetname][0]);
+        dataTable = new Array(indexNameList.length);
+        for(let i=0; i<indexNameList.length; i++) {
+          dataTable[i] = new Array(output[sheetname].length).fill(0);
+        }
+        for(let i=0; i<indexNameList.length; i++) {
+          for(let j=0; j<output[sheetname].length; j++) {
+            dataTable[i][j] = output[sheetname][j][indexNameList[i]];
+          }
+        }
+      }
+
+      //インデックスの作成
+      function indexSet() {
+        var pSelectIndexContainer = document.getElementById('selectIndexContainer');
+        for(let i=0; i<indexNameList.length; i++) {
+          let iDiv = document.createElement('div');
+          iDiv.innerHTML = indexNameList[i];
+          pSelectIndexContainer.appendChild(iDiv);
+          let iSelect = document.createElement('select');
+          iSelect.id = indexNameList[i];
+          iSelect.setAttribute('onChange', 'filter(\"' + indexNameList[i] + '\")');
+          //iSelect.multiple = "multiple";
+          //iSelect.onchange = filter;
+          let nashi = document.createElement('option');
+          nashi.value = 'nashi';
+          nashi.innerHTML = 'なし';
+          iSelect.appendChild(nashi);
+          var uniqueContent = Array.from(new Set(dataTable[i]));
+          uniqueContent = uniqueContent.sort();
+          uniqueContent.forEach(function(content) {
+            let Option = document.createElement('option');
+            Option.value = content;
+            Option.innerHTML = content;
+            iSelect.appendChild(Option);
+          });
+          pSelectIndexContainer.appendChild(iSelect);
+        }
+      }
+
+      function makeTable() {
+        var mainTable = document.getElementById('mainTable');
+        var newRow = mainTable.insertRow();
+        newRow.className = 'colTitle';
+        for(let i=0; i<indexNameList.length; i++) {
+          var newTh = document.createElement('th');
+          newTh.innerHTML = indexNameList[i];
+          newRow.appendChild(newTh);
+        }
+        for(let i=0; i<output[nowSheetName].length; i++) {
+          newRow = mainTable.insertRow();
+          let classText = '';
+          for(let j=0; j<indexNameList.length; j++) {
+            var newCell = newRow.insertCell();
+            var newText = document.createTextNode(dataTable[j][i]);
+            newCell.appendChild(newText);
+            classText += dataTable[j][i] + ' ';
+          }
+          newRow.className = classText;
+        }
+      }
+
+			function allReset() {
+        var pSelectIndexContainer = document.getElementById('selectIndexContainer');
+				var select = pSelectIndexContainer.getElementsByTagName('select');
+				for(var i=0;i<select.length;i++) {
+					select[i].selectedIndex = 0;
+				}
+				filter();
+			}
+
+      // 画面初期化
+      // ファイル選択欄 選択イベント
+      var form = document.getElementById('myfile');
+      form.addEventListener('change', function(e) {
+        var result = e.target.files[0];
+        if(result.name.search(/.xlsx$/) != -1) {
+          handleFile(e);
+        } else {
+          window.alert('エクセルファイルを選択してください');
+        }
+      });
+      /*form.onchange = function(e) {
+        handleFile(e);
+      };*/
+    </script>
+  </body>
+</html>
